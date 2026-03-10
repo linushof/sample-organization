@@ -1,0 +1,7 @@
+problem,short_option,long_option,short_type,long_type,short_avg,long_avg,ev_rate,winning_rate
+simple_problem1,option2,option1,risky,safe,17.333333333333332,20.0,1.153846153846154,0.6666666666666666
+complex_problem1,option1,option2,risky,risky,16.866666666666667,22.266666666666666,1.3201581027667983,0.6666666666666666
+simple_problem2,option1,option2,safe,risky,18.0,20.666666666666668,1.1481481481481481,0.6666666666666666
+complex_problem2,option1,option2,risky,risky,18.4,24.733333333333334,1.3442028985507248,0.6666666666666666
+simple_problem3,option2,option1,safe,risky,21.0,25.0,1.1904761904761905,0.6666666666666666
+complex_problem3,option1,option2,risky,risky,20.0,26.8,1.34,0.7333333333333333
