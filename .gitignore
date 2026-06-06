@@ -3,7 +3,11 @@
 .RData
 .Ruserdata
 
+# folders
 data/raw/
 data/stimuli/
 legacy/
-misc/
+code/misc/
+
+# files
+references.bib

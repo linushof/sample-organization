@@ -64,10 +64,10 @@ all_problems <- bind_rows(run$complex, simple_short_full, simple_long_full)
 ## store data sets ---------------------------------------------------------
 
 # .csv
-write_csv(all_problems, "data/stimuli/all_problems.csv" ) # all
-write_csv(run$complex, "data/stimuli/complex_problems.csv" ) # only complex
-write_csv(run$simple_short, "data/stimuli/simple_short_problems.csv" ) # only left-skewed
-write_csv(run$simple_long, "data/stimuli/simple_long_problems.csv" ) # only right-skewed
+write_csv(all_problems, "data/stimuli/latent_problems/all_problems.csv" ) # all
+write_csv(run$complex, "data/stimuli/latent_problems/complex_problems.csv" ) # only complex
+write_csv(run$simple_short, "data/stimuli/latent_problems/simple_short_problems.csv" ) # only left-skewed
+write_csv(run$simple_long, "data/stimuli/latent_problems/simple_long_problems.csv" ) # only right-skewed
 
 
 # training ----------------------------------------------------------------
@@ -128,8 +128,8 @@ all_problems <- bind_rows(training$complex, simple_short_full, simple_long_full)
 
 ## store data sets ---------------------------------------------------------
 
-write_csv(all_problems, "data/stimuli/training_all_problems.csv" ) # all
-write_csv(training$complex, "data/stimuli/training_complex_problems.csv" ) # only complex
-write_csv(training$simple_short, "data/stimuli/training_simple_short_problems.csv" ) # only left-skewed
-write_csv(training$simple_long, "data/stimuli/training_simple_long_problems.csv" ) # only right-skewed
+write_csv(all_problems, "data/stimuli/latent_problems/practice/training_all_problems.csv" ) # all
+write_csv(training$complex, "data/stimuli/latent_problems/practice/training_complex_problems.csv" ) # only complex
+write_csv(training$simple_short, "data/stimuli/latent_problems/practice/training_simple_short_problems.csv" ) # only left-skewed
+write_csv(training$simple_long, "data/stimuli/latent_problems/practice/training_simple_long_problems.csv" ) # only right-skewed
 
