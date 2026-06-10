@@ -3,7 +3,7 @@
 # packages
 pacman::p_load(tidyverse, 
                gtools, 
-               rstan)
+               rstan, patchwork)
 
 # data 
 choices <- read_csv('data/clean/choices_wide_org.csv') # option 1 == 1; option 2 = 0
@@ -50,7 +50,7 @@ for (g in seq_len(nrow(groups))){
     preds = preds , 
     nsub = dim(obs)[1]  , # number of subjects in group 
     nprob = dim(obs)[2]  , # number of problems (20)
-    K = dim(pred)[2] # number of possible strategies
+    K = dim(preds)[2] # number of possible strategies
     )
   
   lcm <- stan(file = "code/models/classification.stan" , 
@@ -70,39 +70,89 @@ for (g in seq_len(nrow(groups))){
 }
 
 
-# Extract summary matrix
-model_params <- summary(lcm)$summary
+weights_list <- vector('list', length = nrow(groups))
+errors_list <- vector('list', length = nrow(groups))
 
-
-weights <- model_params |> 
-  as.data.frame() |> 
-  rownames_to_column("parameter") |> 
-  filter(str_detect(parameter, "^weights\\[")) |> # extract weights only
-  separate_wider_regex(parameter,
-                       patterns= c("weights\\[", participant = "\\d+", ",", strategy = "\\d+","\\]")) |>
-  select(participant, strategy, weight = mean)
-
-weights |> 
-  mutate(weight1 = if_else(strategy==1,weight,NA) , 
-         participant = fct_reorder(participant, weight1, .na_rm=TRUE)) |> 
-  ggplot(aes(x=participant, y=weight, fill=strategy)) + 
-  geom_col(position = 'fill') + 
-  theme_minimal()
-
-
-# z_error is the standard deviation, not the absolute error
-errors <- model_params |> 
-  as.data.frame() |> 
-  rownames_to_column("parameter") |> 
-  filter(str_detect(parameter, "^z_error\\[")) |> # extract weights only
-  separate_wider_regex(parameter,
-                       patterns= c("z_error\\[", participant = "\\d+", "\\]")) |>
-  select(participant, error = mean, error_lower = `2.5%`, error_upper = `97.5%` )
-
-errors |> 
-  mutate(participant = fct_reorder(participant, error, .na_rm=TRUE)) |> 
-  ggplot(aes(x=participant)) + 
-  geom_point(aes(y=error)) +
-  geom_errorbar(aes(ymin=error_lower, ymax=error_upper)) +
-  theme_minimal()
+for (g in seq_len(nrow(groups))){
   
+  cpx <- groups[[g, 'complexity']]
+  switch <- groups[[g, 'switching']]
+  
+  # load stan fits
+  load(paste0('fits/lcm_',cpx, '_', switch, '.RData'))
+  
+  # Extract summary matrix
+  model_params <- summary(lcm)$summary
+  
+  weights <- model_params |> 
+    as.data.frame() |> 
+    rownames_to_column("parameter") |> 
+    filter(str_detect(parameter, "^weights\\[")) |> # extract weights only
+    separate_wider_regex(parameter,
+                         patterns= c("weights\\[", participant = "\\d+", ",", strategy = "\\d+","\\]")) |>
+    select(participant, strategy, weight = mean) |> 
+    mutate(complexity=cpx, 
+           switching=switch)
+
+  
+  # z_error is the standard deviation, not the absolute error
+  errors <- model_params |> 
+    as.data.frame() |> 
+    rownames_to_column("parameter") |> 
+    filter(str_detect(parameter, "^z_error\\[")) |> # extract weights only
+    separate_wider_regex(parameter,
+                         patterns= c("z_error\\[", participant = "\\d+", "\\]")) |>
+    select(participant, error = mean, error_lower = `2.5%`, error_upper = `97.5%` ) |> 
+    mutate(complexity=cpx, 
+           switching=switch)
+  
+  weights_list[[g]] <- weights
+  errors_list[[g]] <- errors
+  }
+
+
+all_weights <- weights_list |> 
+  bind_rows() |> 
+  mutate(strategy=if_else(strategy=='1', 'Roundwise', 'Summary')) 
+
+plot_weights_simple <- all_weights |> 
+  filter(complexity=='simple') |> 
+  mutate(weight_round = if_else(strategy=='Roundwise', weight, 1-weight)) |> 
+  ggplot(aes(x=reorder_within(participant, by=weight_round, within=switching), y=weight, fill=strategy)) + 
+  geom_col(position = 'fill', col='black') + 
+  scale_x_reordered() +
+  facet_wrap(~switching, scales='free', drop=TRUE, nrow=3) +
+  labs(title='Low Complexity', 
+       x='Participants', 
+       y='Strategy Weights', 
+       fill='Decision Strategy') +
+  theme_bw() +
+  scale_y_continuous(breaks = seq(0,1,length.out=3)) +
+  theme(axis.text.x = element_blank(), 
+        axis.ticks.x = element_blank() ) 
+
+plot_weights_complex <- all_weights |> 
+  filter(complexity=='complex') |> 
+  mutate(weight_round = if_else(strategy=='Roundwise', weight, 1-weight)) |> 
+  ggplot(aes(x=reorder_within(participant, by=weight_round, within=switching), y=weight, fill=strategy)) + 
+  geom_col(position = 'fill', col='black') + 
+  scale_x_reordered() +
+  facet_wrap(~switching, scales='free', drop=TRUE, nrow=3) +
+  labs(title='High Complexity',
+       x='Participants', 
+       y='', 
+       fill='Decision Strategy') +
+  theme_bw() +
+  scale_y_continuous(breaks = seq(0,1,length.out=3)) +
+  theme(axis.text.x = element_blank(), 
+        axis.ticks.x = element_blank() ) 
+
+lcm_plot <- plot_weights_simple + plot_weights_complex +
+  plot_layout(guides = 'collect')
+
+
+ggsave("figures/strategy_classification.eps",
+       width = 17.62, height=9/0.7, units="cm",dpi=600, device = cairo_ps)
+ggsave("figures/strategy_classification.png",
+       width = 17.62, height=9/0.7, units="cm",dpi=900)
+
