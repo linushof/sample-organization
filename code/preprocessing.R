@@ -153,4 +153,4 @@ samples <- tibble(file = file_list) |>
                            complexity == 'complex' & switching == 'none' ~ 6))) |>  
   select(problem_match, problem_unique, present, switching, complexity, group, sample, option1, option2)
 
-write_csv(samples, 'data/stimuli/observed_samples/test_all.csv')  
+write_csv(samples, 'data/stimuli/observed_samples/test_all.csv')

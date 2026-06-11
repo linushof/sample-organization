@@ -5,15 +5,37 @@ pacman::p_load(tidyverse ,
                brms ,
                tidybayes,
                ggdist , 
-               scico)
+               scico,
+               patchwork)
 
 # data
 dat <- read_csv('data/clean/choices_long.csv')
+part_to_exclude <- c("0319_3_17_1", "0320_5_17_1", "0321_8_13_3")
+dat <- dat |> filter(!(participant %in% part_to_exclude))
 
 # ggplot
 three_col <- c('#DF9D56', '#6EB5E1', '#572948')
 three_lvl <- c('infrequent', 'frequent', 'none')
 three_lab <- c('infrequent', 'frequent', 'parallel')
+
+
+# descriptive -------------------------------------------------------------
+
+dat |> 
+  distinct(participant, .keep_all = T) |> 
+  mutate(age = if_else(age > 1900, 2025-age, age)) |> 
+  summarise(n = n(), 
+            m = mean(age, na.rm = T), 
+            sd = sd(age, na.rm = T), 
+            min = min(age, na.rm =T),
+            max = max(age, na.rm =T)
+            )
+
+
+dat |> 
+  distinct(participant, .keep_all = T) |> 
+  group_by(gender) |> 
+  summarise(n = n())
 
 
 # linear models ----------------------------------------------------
@@ -181,8 +203,64 @@ ggsave("figures/risk_preferences.png",
 
 
 # computational models --------------------------------------------------
+## pooling -----------------------------------------------------------------
 
-'insert code from classification_analysis.R here'
+
+
+
+## hierarchical ------------------------------------------------------------
+
+current_model <- 'hierarchical_lcm' 
+current_model_summaries <- paste0('fits/summaries/',current_model,'.RData') 
+
+if(file.exists(paste0('fits/summaries/',current_model,'.RData'))){
+  load(current_model_fits, verbose=T)} else{
+    print(paste0('File ', current_model_summaries, ' could not be found. First run script code/classification_analysis.R' ))}
+  
+all_errors_s <- all_errors |> filter(complexity=='simple') 
+plot_weights_simple <- all_weights |> 
+  filter(complexity=='simple') |> 
+  ggplot(aes(x=reorder_within(participant, by=weight_round, within=switching), y=weight, fill=strategy)) + 
+  geom_col(position = 'fill', col='black') + 
+  geom_point(data=all_errors_s, aes(y=error_transformed)) + 
+  scale_x_reordered() +
+  facet_wrap(~switching, scales='free', drop=TRUE, nrow=3) +
+  labs(title='Low Complexity', 
+       x='Participants', 
+       y='Strategy Weights', 
+       fill='Decision Strategy') +
+  theme_bw() +
+  scale_y_continuous(breaks = seq(0,1,length.out=3)) +
+  theme(axis.text.x = element_blank(), 
+        axis.ticks.x = element_blank() ) 
+
+all_errors_c <- all_errors |> filter(complexity=='complex') 
+plot_weights_complex <- all_weights |> 
+  filter(complexity=='complex') |> 
+  mutate(weight_round = if_else(strategy=='Roundwise', weight, 1-weight)) |> 
+  ggplot(aes(x=reorder_within(participant, by=weight_round, within=switching), y=weight, fill=strategy)) + 
+  geom_col(position = 'fill', col='black') + 
+  geom_point(data=all_errors_c, aes(y=error_transformed)) + 
+  scale_x_reordered() +
+  facet_wrap(~switching, scales='free', drop=TRUE, nrow=3) +
+  labs(title='High Complexity',
+       x='Participants', 
+       y='', 
+       fill='Decision Strategy') +
+  theme_bw() +
+  scale_y_continuous(breaks = seq(0,1,length.out=3)) +
+  theme(axis.text.x = element_blank(), 
+        axis.ticks.x = element_blank() ) 
+
+lcm_plot <- plot_weights_simple + plot_weights_complex +
+  plot_layout(guides = 'collect')
+lcm_plot
+
+ggsave("figures/strategy_classification.eps",
+       width = 17.62, height=9/0.7, units="cm",dpi=600, device = cairo_ps)
+ggsave("figures/strategy_classification.png",
+       width = 17.62, height=9/0.7, units="cm",dpi=900)
+
 
 
 # additional stuff --------------------------------------------------

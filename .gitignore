@@ -5,9 +5,12 @@
 
 # folders
 data/raw/
-data/stimuli/
+data/stimuli/observed_samples/practice
+data/stimuli/observed_samples/test
+data/stimuli/latent_problems/
 legacy/
 code/misc/
+misc/
 
 # files
 references.bib
