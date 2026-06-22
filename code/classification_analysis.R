@@ -4,17 +4,17 @@
 pacman::p_load(gtools, rstan)
 
 redo_analysis <- FALSE
-current_model <- 'hierarchical_lcm' 
+current_model <- 'pooled_lcm' 
 
 
-current_model_fits <- paste0('fits/summaries/',current_model,'.RData')
+current_model_summaries <- paste0('fits/summaries/',current_model,'.RData')
 groups <- expand_grid(current_model=current_model , 
                       complexity=c('simple', 'complex') ,
                       switching=c('none', 'infrequent','frequent')) |> 
   mutate(file = paste0('fits/',current_model,'_',complexity, '_', switching, '.RData'))
 
 
-if(redo_analysis){file.remove(groups$file,  current_model_fits)}
+if(redo_analysis){file.remove(groups$file,  current_model_summaries)}
 
 missing_fits <- anyNA(if_else(file.exists(groups$file),TRUE,NA))
 
@@ -76,7 +76,7 @@ if(missing_fits){
 
 # prepare data sets
 
-if(!file.exists(current_model_fits)){
+if(!file.exists(current_model_summaries)){
   
   weights_list <- errors_list <- vector('list', length = nrow(groups))
   for (g in seq_len(nrow(groups))){ 
@@ -89,7 +89,9 @@ if(!file.exists(current_model_fits)){
     # extract relevant parameters (strategy weights and parameters)
     model_params <- summary(lcm)$summary
     
-    if(current_model=='hierarchical_lcm'){ 
+    if(current_model=='hierarchical_lcm'){
+      
+      # strategy 1 is roundwise
       weights <- model_params |> 
         as.data.frame() |> 
         rownames_to_column("parameter") |> 
@@ -113,7 +115,27 @@ if(!file.exists(current_model_fits)){
       
       } else{# pooling
         
-        # continue here
+        weights <- model_params |> 
+          as.data.frame() |> 
+          rownames_to_column("parameter") |> 
+          filter(str_detect(parameter, "^weights\\[")) |> # extract weights only
+          separate_wider_regex(parameter,
+                               patterns= c("weights\\[", strategy = "\\d+", "\\]")) |>
+          select(strategy, weight = mean) |> 
+          mutate(complexity=cpx, 
+                 switching=switch)
+        
+        # CAVE: z_error is the standard deviation, not the absolute error
+        errors <- model_params |> 
+          as.data.frame() |> 
+          rownames_to_column("parameter") |> 
+          filter(str_detect(parameter, "^z_error\\[")) |> 
+          separate_wider_regex(parameter,
+                               patterns= c("z_error\\[", participant = "\\d+", "\\]")) |>
+          select(participant, error = mean, error_lower = `2.5%`, error_upper = `97.5%` ) |> 
+          mutate(complexity=cpx, 
+                 switching=switch)
+        
         
       }
     
@@ -131,12 +153,8 @@ if(!file.exists(current_model_fits)){
   
   all_errors <- errors_list |> 
     bind_rows() |> 
-    mutate(error_transformed = pnorm(error)) |> 
-    left_join(all_weights, by=join_by(participant, complexity, switching)) |> 
-    distinct(participant, complexity, switching, .keep_all=T) |> 
-    select(!weight)
+    mutate(error_transformed = pnorm(error))
   
-  
-  save(all_weights, all_errors, file=current_model_fits)
+  save(all_weights, all_errors, file=current_model_summaries)
   
 }

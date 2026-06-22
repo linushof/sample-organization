@@ -6,7 +6,9 @@ pacman::p_load(tidyverse ,
                tidybayes,
                ggdist , 
                scico,
-               patchwork)
+               patchwork,
+               tidytext
+               )
 
 # data
 dat <- read_csv('data/clean/choices_long.csv')
@@ -203,20 +205,32 @@ ggsave("figures/risk_preferences.png",
 
 
 # computational models --------------------------------------------------
+
+current_model <- 'pooled_lcm' 
+current_model_summaries <- paste0('fits/summaries/',current_model,'.RData') 
+
+if(file.exists(paste0('fits/summaries/',current_model,'.RData'))){
+  load(current_model_summaries, verbose=T)} else{
+    print(paste0('File ', current_model_summaries, ' could not be found. First run script code/classification_analysis.R' ))}
+
+
 ## pooling -----------------------------------------------------------------
 
+all_weights |> 
+  ggplot(aes(x=switching, y=weight, fill=strategy)) + 
+  geom_col(position = 'dodge', col='black') + 
+  facet_wrap(~factor(complexity, levels = c('simple', 'complex')), scales='free', drop=TRUE, nrow=1) +
+  labs(x='Strategy', 
+       y='Weight', 
+       fill='Decision Strategy') +
+  theme_bw() +
+  scale_y_continuous(breaks = seq(0,1,length.out=3)) 
 
+all_errors
 
 
 ## hierarchical ------------------------------------------------------------
 
-current_model <- 'hierarchical_lcm' 
-current_model_summaries <- paste0('fits/summaries/',current_model,'.RData') 
-
-if(file.exists(paste0('fits/summaries/',current_model,'.RData'))){
-  load(current_model_fits, verbose=T)} else{
-    print(paste0('File ', current_model_summaries, ' could not be found. First run script code/classification_analysis.R' ))}
-  
 all_errors_s <- all_errors |> filter(complexity=='simple') 
 plot_weights_simple <- all_weights |> 
   filter(complexity=='simple') |> 
