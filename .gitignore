@@ -10,7 +10,12 @@ data/stimuli/observed_samples/test
 data/stimuli/latent_problems/
 legacy/
 code/misc/
+code/models/old/
 misc/
+fits/
+figures/
 
 # files
 references.bib
+*.rds
+*.pptx

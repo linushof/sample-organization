@@ -4,122 +4,66 @@
 pacman::p_load(tidyverse)
 
 # data
-problems <- read_csv('data/stimuli/observed_samples/test_summaries.csv')
-choices <- list.files(path = 'data/raw/', pattern = "*.csv", full.names=T, include.dirs=T, recursive=T)  
+probs <- read_csv('data/stimuli/observed_samples/test_summaries.csv')
+parts <- list.files(path = 'data/raw/', pattern = "*.csv", full.names=T, include.dirs=T, recursive=T) # PsychpPy outputs
+# length(parts) # 199
+
+# exclude participants that did not follow the instructions
+exclude <- c("0319_3_17_1", "0320_5_17_1", "0321_8_13_3")
+valid_parts <- parts[!grepl(paste(exclude, collapse = "|"), parts)]
+#length(valid_parts) # 196 
 
 # choices -----------------------------------------------------------------
 
-# Initialize an empty data frame to store the final results
-choices_wide <- tibble(
-  participant = factor(),
-  gender = factor(),
-  age = double(),
-  group = factor()
-)
-
-choices_wide_org <- tibble(
-  participant = factor(),
-  gender = factor(),
-  age = double(),
-  group = factor()
-)
-
-file <- choices[1]
-# Loop through each CSV file
-for (file in choices) {
+all_dat <- vector('list', length(valid_parts))
+for (part in valid_parts) {
   
-  data <- read_csv(file, col_types = cols())
+  data <- read_csv(part, col_types = cols())
   
   # Extract the necessary information and convert to character
   participant <- unique(data$participant)
   gender <- data$gender.response[!is.na(data$gender.response) & data$gender.response != ""][1]
   age <- data$age.text[!is.na(data$age.text) & data$age.text != ""][1]
   group <- data$group.text[!is.na(data$group.text) & data$group.text != ""][1]
-  resp <- data$choice[!is.na(data$choice) & data$choice != ""]
+  resp <- data$choice[!is.na(data$choice) & data$choice != ""] # 1 = option 1; 2 = option 2
   
-  # Create a new row for the final data frame
-  new_row <- tibble(
-    participant = as.factor(participant) ,
-    gender = as.factor(gender) ,
-    age = age ,
-    group = as.factor(group)
-  )
+  dat <- expand_grid(participant=participant, 
+                     gender=gender, 
+                     age=if_else(age > 1900, 2025-age, age),
+                     group=group,
+                     choice=if_else(resp==1, 1,0)) |> 
+    mutate(complexity = case_when(group %in% c(1,2,5) ~ 'simple', 
+                                  group %in% c(3,4,6) ~ 'complex') ,
+           present = case_when(group %in% 1:4 ~ 'sequential' , 
+                               group %in% 5:6 ~ 'parallel') , 
+           switching = case_when(group %in% c(1,3) ~ 'infrequent', 
+                                 group %in% c(2,4) ~ 'frequent',
+                                 group %in% c(5,6) ~ 'none') , 
+           problem=1:20,
+           problem_unique = as.factor(if_else(complexity=='simple', problem, problem+20)) ,
+           problem = as.factor(problem)) |> 
+    select(participant:group, complexity, present, switching, problem, problem_unique, choice)
   
-  new_row_org <- tibble(
-    participant = as.factor(participant) ,
-    gender = as.factor(gender) ,
-    age = age ,
-    group = as.factor(group)
-  )
+  all_dat[[part]] <- dat
   
-  # Determine the prefix based on the group
-  prefix <- ifelse(as.numeric(group) %in% c(3,4,6), "complex_", "simple_")
-  
-  # Add the choices as new columns
-  for (i in 1:length(resp)) {
-    problem_name <- paste0(prefix, "problem", i)
-    short_option <- problems[problems$problem == problem_name, ]$short_option
-    choice_value <- as.numeric(resp[i])
-    new_row_org[[paste0("problem", i)]] <- choice_value==1 # option 1 is coded as 1
-    
-    chose_short_value <- ifelse((short_option == "option1" && choice_value == 1) ||
-        (short_option == "option2" && choice_value == 2), 1, 0)
-    new_row[[paste0("problem", i)]] <- chose_short_value
-    
-  }
-  
-  # Append the new row to the final data frame
-  choices_wide <- bind_rows(choices_wide, new_row)
-  choices_wide_org <- bind_rows(choices_wide_org, new_row_org)
-}
+}    
 
-# one participant used date of birth instead of age -> fix
-choices_wide <- choices_wide |>  
-  mutate(complexity = case_when(group %in% c(1,2,5) ~ 'simple', 
-                                group %in% c(3,4,6) ~ 'complex') ,
-         present = case_when(group %in% 1:4 ~ 'sequential' , 
-                             group %in% 5:6 ~ 'parallel') , 
-         switching = case_when(group %in% c(1,3) ~ 'infrequent', 
-                               group %in% c(2,4) ~ 'frequent',
-                               group %in% c(5,6) ~ 'none')) |> 
-  select(participant, age, gender, present, switching, complexity, group, problem1:problem20)
+choices <- bind_rows(all_dat)
+write_csv(choices, 'data/choices.csv')
 
-choices_wide_org <- choices_wide |>  
-  mutate(complexity = case_when(group %in% c(1,2,5) ~ 'simple', 
-                                group %in% c(3,4,6) ~ 'complex') ,
-         present = case_when(group %in% 1:4 ~ 'sequential' , 
-                             group %in% 5:6 ~ 'parallel') , 
-         switching = case_when(group %in% c(1,3) ~ 'infrequent', 
-                               group %in% c(2,4) ~ 'frequent',
-                               group %in% c(5,6) ~ 'none')) |> 
-  select(participant, age, gender, present, switching, complexity, group, problem1:problem20)
+# problems ---------------------------------------------
 
-write_csv(choices_wide_org, 'data/clean/choices_wide_org.csv')
-write_csv(choices_wide, 'data/clean/choices_wide.csv')
+problems <- probs |> 
+  separate(problem, c('complexity', 'problem'), sep='_') |>  
+  mutate(problem = as.double(str_remove(problem, 'problem')) , 
+         problem_unique = as.factor(if_else(complexity=='simple', problem, problem+20)) ,
+         problem = as.factor(problem),
+         short_option = if_else(short_option=='option1',1,0), 
+         long_option = if_else(long_option=='option1',1,0)) |> 
+  select(complexity, problem, problem_unique, everything())
+problems
 
-# choices + problem summaries ---------------------------------------------
-
-problems <- problems |> 
-  separate(problem, c('complexity', 'problem_match'), sep='_') |>  
-  mutate(problem_match = str_remove(problem_match, 'problem'))
-
-choices_long <-  choices_wide |>  
-  pivot_longer(cols=problem1:problem20, 
-               names_to = 'problem_match', 
-               names_prefix =  'problem', 
-               values_to = 'short_term_choice') |>  
-  left_join(problems, by=c('problem_match'='problem_match', 'complexity'='complexity')) |>  
-  mutate(problem_match = as.numeric(problem_match) , 
-         problem_unique = if_else(complexity=='complex', problem_match, problem_match+20)) |> 
-  select(participant, age, gender, 
-         present, switching, complexity, group, 
-         problem_match, problem_unique, 
-         short_option, short_type, short_avg, 
-         long_option, long_type, long_avg, 
-         ev_rate, winning_rate, 
-         short_term_choice)
-
-write_csv(choices_long, 'data/clean/choices_long.csv')
+write_csv(problems, 'data/problems.csv')
 
 
 # samples -----------------------------------------------------------------

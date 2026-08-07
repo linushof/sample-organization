@@ -32,9 +32,9 @@ generate_problems_beta1.1 <- function(n=20 , # number of problems per condition
     outs <- sample(range[1]:range[2], size=5, replace=F) %>% round()
     long_outs <- c(max(outs) , sample(outs[outs!=min(outs) & outs!=max(outs)], 2, replace = F)) %>% sort() # ensures that largest (smallest) outcome belongs to long (short)  
     long_ev = long_outs[1]*long_probs[1] + long_outs[2]*long_probs[2] + long_outs[3]*long_probs[3]
-    short_outs <- c(outs[!outs %in% long_outs], sample(1.1*long_ev:range[2], size=1, replace = F)) %>% round() %>%  sort() ## correct logic?
+    short_outs <- c(outs[!outs %in% long_outs], sample(1.1*long_ev:range[2], size=1, replace = F)) %>% round() %>%  sort()
     
-    # to prevent dominant options -> still necessary ?? (see line above)
+    # to prevent dominant options 
     if(max(short_outs) < min(long_outs)){
       newShort <- min(long_outs)
       newLong <- max(short_outs)

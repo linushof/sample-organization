@@ -7,38 +7,34 @@ pacman::p_load(tidyverse ,
                ggdist , 
                scico,
                patchwork,
-               tidytext
+               tidytext,
+               beeswarm
                )
 
 # data
-dat <- read_csv('data/clean/choices_long.csv')
-part_to_exclude <- c("0319_3_17_1", "0320_5_17_1", "0321_8_13_3")
-dat <- dat |> filter(!(participant %in% part_to_exclude))
+choices <- read_csv('data/choices.csv')
+problems <- read_csv('data/problems.csv')
+dat <- choices |> left_join(problems, by=join_by(complexity, problem, problem_unique))
 
 # ggplot
 three_col <- c('#DF9D56', '#6EB5E1', '#572948')
 three_lvl <- c('infrequent', 'frequent', 'none')
 three_lab <- c('infrequent', 'frequent', 'parallel')
 
-
 # descriptive -------------------------------------------------------------
 
 dat |> 
   distinct(participant, .keep_all = T) |> 
-  mutate(age = if_else(age > 1900, 2025-age, age)) |> 
   summarise(n = n(), 
             m = mean(age, na.rm = T), 
             sd = sd(age, na.rm = T), 
             min = min(age, na.rm =T),
-            max = max(age, na.rm =T)
-            )
-
+            max = max(age, na.rm =T))
 
 dat |> 
   distinct(participant, .keep_all = T) |> 
   group_by(gender) |> 
   summarise(n = n())
-
 
 # linear models ----------------------------------------------------
 
@@ -48,7 +44,8 @@ lm_dat <- list(PART = dat$participant ,
                PROB = dat$problem_unique , 
                S = factor(dat$switching) , 
                CPX = factor(dat$complexity) , 
-               C = dat$short_term_choice)
+               C = if_else(dat$choice==dat$short_option,1,0) # short-term choice
+               )
   
 lm_f <- bf(C ~ 1 + CPX*S + (1|PROB) + (1|PART))
 
@@ -94,6 +91,17 @@ lm_effect_summaries <- lm_effect_samples |>
 
 # plot group means (posterior summaries)
 
+
+# replace with random effects of subjects
+
+
+choice_prop_ind <- dat |> 
+  mutate(short_choice = if_else(choice==short_option,1,0) ,
+         switching = if_else(switching=='none', "parallel" , switching)) |>
+  group_by(participant, complexity, switching) |> 
+  summarize(choice_prop = mean(short_choice))
+
+
 figure_group_means <- lm_effect_summaries |> 
   filter(!str_detect(.variable, "d")) |> 
   mutate(complexity = case_when(str_detect(.variable, "_C_") ~ "complex" ,
@@ -103,21 +111,31 @@ figure_group_means <- lm_effect_summaries |>
                                str_detect(.variable, "I") ~ "infrequent" ,
                                str_detect(.variable, "P") ~ "parallel" ,
                                TRUE ~ NA_character_)) |> 
-  ggplot(aes(x=factor(complexity, levels=c("simple", "complex")), y=.value, color=factor(switching, levels=c("infrequent", "frequent", "parallel")))) +
+  ggplot(aes(y=.value , 
+             x=factor(switching, levels=c("infrequent", "frequent", "parallel")), 
+             color=factor(switching, levels=c("infrequent", "frequent", "parallel")))) +
+  facet_wrap(~factor(complexity, levels=c("simple", "complex"), labels=c('Simple', 'Complex')), nrow=1) +
+  geom_beeswarm(data = choice_prop_ind, aes(y=choice_prop), 
+                alpha = .3, 
+                color = 'lightgray', 
+                cex=1.5, 
+                size=2, 
+                side = -1L) +
   geom_linerange(aes(ymin = .lower, ymax = .upper), position = position_dodge(width=.5), linewidth=1) +
   geom_point(position = position_dodge(width=.5), size = 3) + 
+  geom_hline(yintercept = .5, linetype='dashed', color='gray') +
   scale_color_manual(values=three_col) +
-  #scale_y_continuous(limits = c(0,1)) +
-  labs(x = "Complexity", 
+  scale_y_continuous(limits = c(0,1)) +
+  labs(x = "Switching", 
        y = "Short-term Winner Choice Proportion",
        color = "Switching") +
   theme_bw()
 figure_group_means
 
-ggsave("figures/group_means.eps",
-       width = 17.62, height=9/0.7, units="cm",dpi=600, device = cairo_ps)
-ggsave("figures/group_means.png",
-       width = 17.62, height=9/0.7, units="cm",dpi=900)
+ggsave("figures/group_means.eps", plot=figure_group_means,
+       width = 17.62, height=9/0.9, units="cm",dpi=600, device = cairo_ps)
+ggsave("figures/group_means.png", plot=figure_group_means,
+       width = 17.62, height=9/0.9, units="cm",dpi=900)
 
 
 ## risk preference (simple problems) ---------------------------------------------------------
@@ -125,10 +143,10 @@ ggsave("figures/group_means.png",
 simple_dat <- dat |> filter(complexity=='simple')
 
 lm_risk_dat <- list(PART = simple_dat$participant ,
-                PROB = simple_dat$problem_unique , 
-                S = factor(simple_dat$switching) , 
-                R = factor(simple_dat$short_type) , 
-                C = simple_dat$short_term_choice)
+                    PROB = simple_dat$problem_unique , 
+                    S = factor(simple_dat$switching) , 
+                    R = factor(simple_dat$short_type) , 
+                    C = if_else(simple_dat$choice==simple_dat$short_option,1,0))
 
 lm_risk_f <- bf(C ~ 1 + R*S + (1|PROB) + (1|PART))
 
@@ -161,8 +179,7 @@ lm_risk_effect_samples <- lm_risk |>
          d_S_IP = m_S_I - m_S_P , 
          d_F = m_R_F - m_S_F ,
          d_I = m_R_I - m_S_I ,
-         d_P = m_R_P - m_S_P 
-  ) 
+         d_P = m_R_P - m_S_P) 
 
 lm_risk_effect_summaries <- lm_risk_effect_samples |> 
   gather_draws(m_S_F, m_S_I, m_S_P , 
@@ -174,9 +191,17 @@ lm_risk_effect_summaries <- lm_risk_effect_samples |>
 
 # plot means for safe vs. risky short-term winning problems
 
+
+choice_prop_ind_risk <- simple_dat |> 
+  mutate(short_choice = if_else(choice==short_option,1,0) ,
+         switching = if_else(switching=='none', "parallel" , switching)) |>
+  group_by(participant, short_type, switching) |> 
+  summarize(choice_prop = mean(short_choice))
+
+
 figure_risk <- lm_risk_effect_summaries |> 
   filter(!str_detect(.variable, "d")) |> 
-  mutate(risk = case_when(str_detect(.variable, "_R_") ~ "risky" ,
+  mutate(short_type = case_when(str_detect(.variable, "_R_") ~ "risky" ,
                                 str_detect(.variable, "_S_") ~ "safe" ,
                                 TRUE ~ NA_character_) ,
          switching = case_when(str_detect(.variable, "F") ~ "frequent"  ,
@@ -184,12 +209,19 @@ figure_risk <- lm_risk_effect_summaries |>
                                str_detect(.variable, "P") ~ "parallel" ,
                                TRUE ~ NA_character_)) |> 
   ggplot(aes(x=factor(switching, levels=c("infrequent", "frequent", "parallel")), y=.value, 
-             color=factor(switching, levels=c("infrequent", "frequent", "parallel")),
-             linetype = risk)) +
+             color=factor(switching, levels=c("infrequent", "frequent", "parallel")))) +
+  facet_wrap(~factor(short_type, levels=c('risky', 'safe'), labels=c('Safe Long-Term Winner','Risky Long-Term Winner')), nrow=1) +
+  geom_beeswarm(data = choice_prop_ind_risk, aes(y=choice_prop), 
+                alpha = .3, 
+                color = 'lightgray', 
+                cex=1.5, 
+                size=2, 
+                side = -1L) +
   geom_linerange(aes(ymin = .lower, ymax = .upper), position = position_dodge(width=.5), linewidth=1) +
   geom_point(position = position_dodge(width=.5), size = 3) + 
+  geom_hline(yintercept = .5, linetype='dashed', color='gray') +
   scale_color_manual(values=three_col) +
-  #scale_y_continuous(limits = c(0,1)) +
+  scale_y_continuous(limits = c(0,1), breaks=seq(0,1,length.out=3)) +
   labs(x = "Switching", 
        y = "Short-term Winner Choice Proportion",
        color = "Switching",
@@ -197,16 +229,17 @@ figure_risk <- lm_risk_effect_summaries |>
   theme_bw()
 figure_risk
 
-ggsave("figures/risk_preference.eps",
-       width = 17.62, height=9/0.7, units="cm",dpi=600, device = cairo_ps)
-ggsave("figures/risk_preferences.png",
-       width = 17.62, height=9/0.7, units="cm",dpi=900)
+ggsave("figures/risk_preference.eps", plot=figure_risk,
+       width = 17.62, height=9/0.9, units="cm",dpi=600, device = cairo_ps)
+ggsave("figures/risk_preference.png", plot=figure_risk,
+       width = 17.62, height=9/0.9, units="cm",dpi=900)
 
 
 
 # computational models --------------------------------------------------
 
-current_model <- 'pooled_lcm' 
+models <- c('complete_pooling', 'pooled_lcm', 'pooled_lcm2', 'hierarchical_lcm')
+current_model <- models[3]  
 current_model_summaries <- paste0('fits/summaries/',current_model,'.RData') 
 
 if(file.exists(paste0('fits/summaries/',current_model,'.RData'))){
@@ -214,7 +247,7 @@ if(file.exists(paste0('fits/summaries/',current_model,'.RData'))){
     print(paste0('File ', current_model_summaries, ' could not be found. First run script code/classification_analysis.R' ))}
 
 
-## pooling -----------------------------------------------------------------
+## complete pooling --------------------------------------------------------
 
 all_weights |> 
   ggplot(aes(x=switching, y=weight, fill=strategy)) + 
@@ -224,9 +257,47 @@ all_weights |>
        y='Weight', 
        fill='Decision Strategy') +
   theme_bw() +
+  scale_fill_manual(values=three_col) +
   scale_y_continuous(breaks = seq(0,1,length.out=3)) 
 
-all_errors
+all_errors |> 
+  ggplot(aes(x=factor(complexity, levels = c('simple', 'complex')), y=error, col=switching)) + 
+  geom_point(size=2) + 
+  scale_color_manual(values=three_col) +
+  labs(x = 'Complexity') +
+  theme_bw()
+
+## pooling -----------------------------------------------------------------
+
+all_weights |> 
+  ggplot(aes(x=switching, y=weight, fill=strategy)) + 
+  geom_col(position = 'dodge', col='black') + 
+  #geom_hline(yintercept = 1/3, linetype='dashed') + 
+  facet_wrap(~factor(complexity, levels = c('simple', 'complex')), drop=TRUE, nrow=1) +
+  labs(x='Strategy', 
+       y='Weight', 
+       fill='Decision Strategy') +
+  theme_bw() +
+  scale_y_continuous(breaks = seq(0,1,length.out=3)) 
+
+ggsave("figures/strategy_classification_weights.eps",
+       width = 17.62, height=9/1.2, units="cm",dpi=600, device = cairo_ps)
+ggsave("figures/strategy_classification_weights.png",
+       width = 17.62, height=9/1.2, units="cm",dpi=900)
+
+all_errors |> 
+  ggplot(aes(x=switching, y=error, fill=switching)) + 
+  geom_boxplot(alpha = .8) + 
+  geom_hline(yintercept = .5, linetype='dashed') + 
+  facet_wrap(~factor(complexity, levels = c('simple', 'complex')),  drop=TRUE, nrow=1) +
+  scale_fill_manual(values=three_col) +
+  scale_y_continuous(limits=c(0,.55), breaks=seq(0,.5,length.out=3)) +
+  theme_bw() 
+  
+ggsave("figures/strategy_classification_error.eps",
+       width = 17.62, height=9/1.2, units="cm",dpi=600, device = cairo_ps)
+ggsave("figures/strategy_classification_error.png",
+       width = 17.62, height=9/1.2, units="cm",dpi=900)
 
 
 ## hierarchical ------------------------------------------------------------
@@ -282,14 +353,94 @@ ggsave("figures/strategy_classification.png",
 
 ## individual differences --------------------------------------------------
 
+
+
+
+
+
+|> 
+  ggplot(aes(x=switching, y=choice_prop)) + 
+  facet_wrap(~factor(complexity, levels=c('simple', 'complex')), nrow=1) + 
+  geom_beeswarm(cex = 3, size = 1.5, color = 'gray') + 
+  geom_
+  #geom_hline(yintercept = .5) + 
+  theme_bw()
+
+  geom_jitter(size = 2) + 
+  geom_hline(yintercept = .5 ) + 
+  theme_bw()
+
+
+
 dat |> 
-  filter(group==6) |> 
-  ggplot(aes(x=problem_match,y=short_term_choice)) +
-  geom_point() + 
-  geom_line() +
-  facet_wrap(~participant) 
+  group_by(participant, complexity, switching) |> 
+  summarize(choice_prop = mean(choice)) |> 
+  ggplot(aes(x=choice_prop, fill=switching)) + 
+  facet_wrap(~factor(complexity, levels=c('simple', 'complex')), nrow=1) + 
+  geom_density(alpha=.5, position='identity') + 
+  geom_vline(xintercept = .5 ) + 
+  theme_bw()
 
 
+
+dat |> 
+  group_by(participant, complexity, long_type, switching) |> 
+  summarize(choice_prop = mean(choice)) |> 
+  ggplot(aes(x=switching, y=choice_prop, col=switching)) + 
+  facet_grid(long_type~factor(complexity, levels=c('simple', 'complex'))) + 
+  geom_jitter(size=2) + 
+  geom_hline(yintercept = .5 ) + 
+  theme_bw()
+
+
+dat |> 
+  group_by(participant, complexity, long_type,switching) |> 
+  summarize(choice_prop = mean(choice)) |> 
+  ggplot(aes(x=choice_prop, color=switching)) + 
+  facet_grid(long_type~factor(complexity, levels=c('simple', 'complex'))) + 
+  geom_density(alpha = .5) + 
+  geom_vline(xintercept = .5 ) + 
+  theme_bw()
+
+
+
+
+
+# replace with random effects of subjects
+group_means <- dat |> 
+  group_by(complexity, switching) |> 
+  summarize(choice_prop = mean(choice)) |> 
+  mutate(switching = if_else(switching=='none', "parallel" , switching))
+
+
+
+
+dat |> 
+  group_by(participant, complexity, switching) |> 
+  summarize(choice_prop = mean(choice)) |> 
+  mutate(switching=if_else(switching=='none', 'parallel', switching)) |> 
+  ggplot(aes(x=switching, y=choice_prop, group=switching), color='lightgray', alpha = .4) + 
+  facet_wrap(~factor(complexity, levels=c('simple', 'complex')), nrow=1) + 
+  geom_beeswarm(cex = 2) + 
+  geom_point(data=group_means, aes(color=switching), size = 2) +
+  geom_hline(yintercept = .5 ) + 
+  theme_bw()
+
+
+
+
+
+ggplot(aes(x=factor(complexity, levels=c("simple", "complex")), y=.value, color=factor(switching, levels=c("infrequent", "frequent", "parallel")))) +
+  geom_linerange(aes(ymin = .lower, ymax = .upper), position = position_dodge(width=.5), linewidth=1) +
+  geom_point(position = position_dodge(width=.5), size = 3) + 
+  # geom_beeswarm(data = ind_choice_prop, aes(y=choice_prop), alpha = .5) +
+  scale_color_manual(values=three_col) +
+  scale_y_continuous(limits = c(0,1)) +
+  labs(x = "Complexity", 
+       y = "Short-term Winner Choice Proportion",
+       color = "Switching") +
+  theme_bw()
+figure_group_means
 
 
 
