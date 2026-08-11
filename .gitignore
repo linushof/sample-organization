@@ -3,17 +3,19 @@
 .RData
 .Ruserdata
 
-# folders
+# only temporarily
+fits/
+experiment/
 data/raw/
 data/stimuli/observed_samples/practice
 data/stimuli/observed_samples/test
 data/stimuli/latent_problems/
+
+# folders
 legacy/
-code/misc/
-code/models/old/
 misc/
-fits/
-figures/
+manuscript/
+code/misc/
 
 # files
 references.bib
