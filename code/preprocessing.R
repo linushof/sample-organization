@@ -6,7 +6,7 @@ pacman::p_load(tidyverse)
 # data
 probs <- read_csv('data/stimuli/observed_samples/test_summaries.csv')
 parts <- list.files(path = 'data/raw/', pattern = "*.csv", full.names=T, include.dirs=T, recursive=T) # PsychpPy outputs
-# length(parts) # 199
+#length(parts) # 199
 
 # exclude participants that did not follow the instructions
 exclude <- c("0319_3_17_1", "0320_5_17_1", "0321_8_13_3")
@@ -49,7 +49,7 @@ for (part in valid_parts) {
 }    
 
 choices <- bind_rows(all_dat)
-write_csv(choices, 'data/choices.csv')
+write_csv(choices, 'data/clean/choices.csv')
 
 # problems ---------------------------------------------
 
@@ -61,16 +61,16 @@ problems <- probs |>
          short_option = if_else(short_option=='option1',1,0), 
          long_option = if_else(long_option=='option1',1,0)) |> 
   select(complexity, problem, problem_unique, everything())
-problems
 
-write_csv(problems, 'data/problems.csv')
+
+write_csv(problems, 'data/clean/sample_sequences_summary.csv')
 
 
 # samples -----------------------------------------------------------------
 
 # Get file list
 file_list <- list.files(
-  path = 'data/stimuli/samples/test', 
+  path = 'data/stimuli/observed_samples/test', 
   pattern = '^(simple|complex)_problem\\d+_(frequent|infrequent|parallel)', 
   full.names = TRUE
 )
@@ -97,4 +97,4 @@ samples <- tibble(file = file_list) |>
                            complexity == 'complex' & switching == 'none' ~ 6))) |>  
   select(problem_match, problem_unique, present, switching, complexity, group, sample, option1, option2)
 
-write_csv(samples, 'data/stimuli/observed_samples/test_all.csv')
+write_csv(samples, 'data/clean/sample_sequences.csv')

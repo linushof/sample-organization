@@ -1,0 +1,1 @@
+Retrieve the raw data from the [latest release](https://github.com/linushof/sampling-organization/releases) and store subfolders here. 

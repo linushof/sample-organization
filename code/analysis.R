@@ -4,12 +4,12 @@ rm(list = ls())
 # packages 
 pacman::p_load(tidyverse, gtools , 
                rstan, brms, tidybayes, ggdist , # bayes 
-               scico, patchwork, tidytext, ggbeeswarm # plotting
-               )
+               scico, patchwork, tidytext, ggbeeswarm, # plotting
+               knitr, kableExtra)
 
 # data
-choices <- read_csv('data/choices.csv')
-problems <- read_csv('data/problems.csv')
+choices <- read_csv('data/clean/choices.csv')
+problems <- read_csv('data/clean/sample_sequences_summary.csv')
 dat <- choices |> left_join(problems, by=join_by(complexity, problem, problem_unique))
 
 ## plotting ----------------------------------------------------------------
@@ -24,6 +24,14 @@ three_col<- c('#DF9D56', '#6EB5E1', '#572948')
 three_lvl <- c('infrequent', 'frequent', 'none')
 three_lab <- c('infrequent', 'frequent', 'parallel')
 
+
+## tables ------------------------------------------------------------------
+
+col_names <- c("Coef." , 
+               "Mean", "2.5\\%", "97.5\\%", "Median", "SD" , 
+               "$\\hat{R}$" , 
+               "$\\text{ESS}_{\\text{bulk}}$" ,
+               "$\\text{ESS}_{\\text{tail}}$")
 
 
 # data set description -------------------------------------------------------------
@@ -64,83 +72,235 @@ lm <- brm(formula=lm_f ,
           save_pars = save_pars(all = TRUE),
           file = 'fits/linear_model')
 
-# posterior
-lm_effect_samples <- lm |> 
+
+### Tables -------------------------------------------------------------------
+
+lower <- .025
+upper <- .975
+
+lm_draws <- lm |> 
   spread_draws(b_Intercept , b_Sinfrequent , b_Snone, # complex problems
-               b_CPXsimple , `b_CPXsimple:Sinfrequent`, `b_CPXsimple:Snone`) |>  # simple problems 
-  mutate(m_C_F = plogis(b_Intercept) ,
+               b_CPXsimple , `b_CPXsimple:Sinfrequent`, `b_CPXsimple:Snone`, # simple problems
+               sd_PROB__Intercept, sd_PART__Intercept) |> # random effects
+  # estimate conditional (subject-specific) means of the different conditions
+  mutate(m_C_F = plogis(b_Intercept) , 
          m_C_I = plogis(b_Intercept + b_Sinfrequent) , 
          m_C_P = plogis(b_Intercept + b_Snone) ,
          m_S_F = plogis(b_Intercept + b_CPXsimple) ,
          m_S_I = plogis(b_Intercept + b_CPXsimple + b_Sinfrequent + `b_CPXsimple:Sinfrequent`) , 
-         m_S_P = plogis(b_Intercept + b_CPXsimple + b_Snone + `b_CPXsimple:Snone`), 
+         m_S_P = plogis(b_Intercept + b_CPXsimple + b_Snone + `b_CPXsimple:Snone`)) 
+
+# group means and model coefficients
+
+effects <- lm_draws |> 
+  select(.chain, .iteration, .draw, 
+         m_S_I, m_S_F, m_S_P,
+         m_C_I, m_C_F, m_C_P,
+         everything()) |> 
+  summarise_draws('mean', 
+                  ~quantile(.x, probs = lower) ,
+                  ~quantile(.x, probs = upper) ,
+                  'median', 'sd', 'rhat', 'ess_bulk', 'ess_tail') |> 
+  rename(Coefficient = variable , 
+         Mean = mean ,
+         Median = median , 
+         SD = sd ,
+         R = rhat ,
+         ESS_bulk = ess_bulk , 
+         ESS_tail = ess_tail)
+lm_effect_summaries <- effects
+
+colnames(effects) <- col_names
+  
+effects$Coef. <- c(rep(c("Infrequent", "Frequent", "Parallel") , 2), 
+                   "$\\beta_0$", "$\\beta_1$", "$\\beta_2$", "$\\beta_3$" , 
+                   "$\\beta_4$", "$\\beta_5$", 
+                   "$\\sigma_u$", "$\\sigma_v$")
+
+effects |>
+  kbl(format = "latex",
+      booktabs = TRUE,
+      caption = "Posterior Summaries of the Logistic Regression Model",
+      label = 'lm',
+      align = c("l", rep("r", 8)),
+      escape = FALSE, 
+      digits=3) |>
+  pack_rows("Group Means", 1, 6, bold=T, italic=F) |>
+  pack_rows("Simple Problems", 1, 3, bold=F, italic=T) |>
+  pack_rows("Complex Problems", 4, 7, bold=F, italic=T) |>
+  pack_rows("Model Coefficients", 7, 14, bold=T, italic=F) |>
+  pack_rows("Fixed effects", 7, 12, bold=F, italic=T) |>
+  pack_rows("Random effects (Hyperparameters)", 13, 14, bold=F, italic=T) |>
+  footnote(general = "Group means refer to draws from the expected value of the 
+           model's posterior predictive distribution when setting the
+           problem- and participant-specific random effects to 0.",
+           general_title = "Note. ",
+           escape = FALSE,
+           threeparttable = TRUE) |>  
+  save_kable(paste0("manuscript/tables/lm.tex"))
+
+
+# sampling contrasts
+
+sampling_contrasts <- lm_draws |> 
+  mutate(d_S_FI = m_S_F - m_S_I ,
+         d_S_PI = m_S_P - m_S_I , 
+         d_S_PF = m_S_P - m_S_F , 
          d_C_FI = m_C_F - m_C_I ,
-         d_C_FP = m_C_F - m_C_P , 
-         d_C_IP = m_C_I - m_C_P ,
-         d_S_FI = m_S_F - m_S_I ,
-         d_S_FP = m_S_F - m_S_P , 
-         d_S_IP = m_S_I - m_S_P , 
-         d_F = m_C_F - m_S_F ,
+         d_C_PI = m_C_P - m_C_I ,
+         d_C_PF = m_C_P - m_C_F) |> 
+  select(.chain, .iteration, .draw, 
+         d_S_FI:d_C_PF) |> 
+  summarise_draws('mean', 
+                ~quantile(.x, probs = lower) ,
+                ~quantile(.x, probs = upper) ,
+                'median', 'sd') |> 
+  rename(Coefficient = variable , 
+         Mean = mean ,
+         Median = median , 
+         SD = sd)
+
+colnames(sampling_contrasts) <- c("Groups", "Mean", "2.5\\%", "97.5\\%", "Median", "SD")  
+
+sampling_contrasts$Groups <- rep( c('Frequent - Infrequent', 
+                            'Parallel - Infrequent' , 
+                            'Parallel - Frequent'), 2)
+
+sampling_contrasts |>
+  kbl(format = "latex",
+      booktabs = TRUE,
+      caption = "Pairwise Differences in the Expected Short-Term Winner Choice Probability Between Sampling Organizations",
+      label = 'lm_sampling_contrasts',
+      align = c("l", rep("r", 8)),
+      escape = FALSE, 
+      digits=3) |>
+  pack_rows("Simple Problems", 1, 3, bold=F, italic=T) |>
+  pack_rows("Complex Problems", 4, 6, bold=F, italic=T) |>
+  footnote(general = "Values refer to differences between draws from the expected value of 
+           the posterior predicive distributions of the two indicated sampling conditions
+           (differences in the reported in Table \\\\ref{tab:lm}).",
+           general_title = "Note. ",
+           escape = FALSE,
+           threeparttable = TRUE) |>  
+  save_kable(paste0("manuscript/tables/lm_sampling_contrasts.tex"))
+
+
+# complexity contrasts
+
+complexity_contrasts <- lm_draws |> 
+  mutate(d_S_FI = m_S_F - m_S_I ,
+         d_S_PI = m_S_P - m_S_I , 
+         d_S_PF = m_S_P - m_S_F , 
+         d_C_FI = m_C_F - m_C_I ,
+         d_C_PI = m_C_P - m_C_I ,
+         d_C_PF = m_C_P - m_C_F , 
          d_I = m_C_I - m_S_I ,
-         d_P = m_C_P - m_S_P 
-         ) 
+         d_F = m_C_F - m_S_F ,
+         d_P = m_C_P - m_S_P , 
+         d_FI = d_C_FI - d_S_FI , 
+         d_PI = d_C_PI - d_S_PI ,
+         d_PF = d_C_PF - d_S_PF) |> 
+  select(.chain, .iteration, .draw, 
+         d_I:d_PF) |> 
+  summarise_draws('mean', 
+                  ~quantile(.x, probs = lower) ,
+                  ~quantile(.x, probs = upper) ,
+                  'median', 'sd') |> 
+  rename(Coefficient = variable , 
+         Mean = mean ,
+         Median = median , 
+         SD = sd)
 
-lm_effect_summaries <- lm_effect_samples |> 
-  gather_draws(m_S_F, m_S_I, m_S_P , 
-               m_C_F, m_C_I, m_C_P , 
-               d_S_FI, d_S_FP, d_S_IP, 
-               d_C_FI, d_C_FP, d_C_IP ,
-               d_F, d_I, d_P) |> 
-  mean_qi()
+colnames(complexity_contrasts) <- c("Group(s)", "Mean", "2.5\\%", "97.5\\%", "Median", "SD")  
 
+complexity_contrasts$`Group(s)` <- c('Infrequent', 'Frequent', 'Parallel', 
+                          'Frequent - Infrequent',
+                          'Parallel - Infrequent' , 
+                          'Parallel - Frequent')
+
+complexity_contrasts |>
+  kbl(format = "latex",
+      booktabs = TRUE,
+      caption = "Pairwise Differences in the Expected Short-Term Winner Choice Probability Between Complexity Conditions",
+      label = 'lm_complexity_contrasts',
+      align = c("l", rep("r", 8)),
+      escape = FALSE, 
+      digits=3) |>
+  pack_rows("Main effect", 1, 3, bold=F, italic=T) |>
+  pack_rows("Interaction effect", 4, 6, bold=F, italic=T) |>
+  footnote(general = "\\\\textit{Main effects} refer to differences in the draws from the expected value of 
+           each sampling organization's posterior predicive distribution between simple vs. complex problems.
+           \\\\textit{Interaction effects} refer to differences in the sampling contrasts 
+           (see Table \\\\ref{tab:lm_sampling_contrasts}) between simple vs. complex problems: 
+           Positive values indicate a larger between sampling organizations in the complex problems.
+           Positive values were expected for all sampling contrasts.",
+           general_title = "Note. ",
+           escape = FALSE,
+           threeparttable = TRUE) |>  
+  save_kable(paste0("manuscript/tables/lm_complexity_contrasts.tex"))
+
+
+
+
+# Marginal Averages
+  
+epred_S <- emmeans(lm, ~ S, epred=T)
+epred_S_prop <- emmeans(lm, ~ S, weights='proportional', epred=T)
+
+epred_CPX <- emmeans(lm, ~ CPX, epred = TRUE)
+epred_CPX_prop <- emmeans(lm, ~ CPX, weights='proportional', epred=T)
+
+
+### Figures -----------------------------------------------------------------
 
 # plot group means (posterior summaries)
 
-
-# replace with random effects of subjects
-
-
 choice_prop_ind <- dat |> 
   mutate(short_choice = if_else(choice==short_option,1,0) ,
-         switching = if_else(switching=='none', "parallel" , switching)) |>
+         complexity = if_else(complexity=='simple', 'Simple', 'Complex'), 
+         switching = case_match(switching, 
+                                'none' ~ "Parallel" ,
+                                'frequent' ~ 'Frequent', 
+                                'infrequent' ~ 'Infrequent')) |>
   group_by(participant, complexity, switching) |> 
   summarize(choice_prop = mean(short_choice))
 
 
 figure_group_means <- lm_effect_summaries |> 
-  filter(!str_detect(.variable, "d")) |> 
-  mutate(complexity = case_when(str_detect(.variable, "_C_") ~ "complex" ,
-                                str_detect(.variable, "_S_") ~ "simple" ,
+  filter(str_detect(Coefficient, "m_")) |> 
+  mutate(complexity = case_when(str_detect(Coefficient, "_C_") ~ "Complex" ,
+                                str_detect(Coefficient, "_S_") ~ "Simple" ,
                                 TRUE ~ NA_character_) ,
-         switching = case_when(str_detect(.variable, "F") ~ "frequent"  ,
-                               str_detect(.variable, "I") ~ "infrequent" ,
-                               str_detect(.variable, "P") ~ "parallel" ,
+         switching = case_when(str_detect(Coefficient, "F") ~ "Frequent"  ,
+                               str_detect(Coefficient, "I") ~ "Infrequent" ,
+                               str_detect(Coefficient, "P") ~ "Parallel" ,
                                TRUE ~ NA_character_)) |> 
-  ggplot(aes(y=.value , 
-             x=factor(switching, levels=c("infrequent", "frequent", "parallel")), 
-             color=factor(switching, levels=c("infrequent", "frequent", "parallel")))) +
-  facet_wrap(~factor(complexity, levels=c("simple", "complex"), labels=c('Simple', 'Complex')), nrow=1) +
+  ggplot(aes(y=Mean , 
+             x=factor(switching, levels=c("Infrequent", "Frequent", "Parallel")), 
+             color=factor(switching, levels=c("Infrequent", "Frequent", "Parallel")))) +
+  facet_wrap(~factor(complexity, levels=c("Simple", "Complex")), nrow=1) +
   geom_beeswarm(data = choice_prop_ind, aes(y=choice_prop), 
                 alpha = .3, 
                 color = 'lightgray', 
                 cex=1.5, 
                 size=2, 
                 side = -1L) +
-  geom_linerange(aes(ymin = .lower, ymax = .upper), position = position_dodge(width=.5), linewidth=1) +
+  geom_linerange(aes(ymin = `2.5%`, ymax = `97.5%`), position = position_dodge(width=.5), linewidth=1) +
   geom_point(position = position_dodge(width=.5), size = 3) + 
   geom_hline(yintercept = .5, linetype='dashed', color='gray') +
   scale_color_manual(values=three_col) +
   scale_y_continuous(limits = c(0,1)) +
-  labs(x = "Switching", 
+  labs(x = "Sampling", 
        y = "Short-term Winner Choice Proportion",
-       color = "Switching") +
+       color = "Sampling") +
   theme_bw()
-figure_group_means
 
 ggsave("manuscript/figures/group_means.eps", plot=figure_group_means,
-       width = 17.62, height=9/0.9, units="cm",dpi=600, device = cairo_ps)
+       width = 17.62, height=9/1.1, units="cm",dpi=600, device = cairo_ps)
 ggsave("manuscript/figures/group_means.jpg", plot=figure_group_means,
-       width = 17.62, height=9/0.9, units="cm",dpi=900)
+       width = 17.62, height=9/1.1, units="cm",dpi=900)
+ggsave("manuscript/figures/group_means.pdf", plot=figure_group_means,
+       width = 17.62, height=9/1.1, units="cm",dpi=900)
 
 
 ## risk preference (simple problems) ---------------------------------------------------------
@@ -194,12 +354,18 @@ lm_risk_effect_summaries <- lm_risk_effect_samples |>
                d_F, d_I, d_P) |> 
   mean_qi()
 
-# plot means for safe vs. risky short-term winning problems
 
+### figure ------------------------------------------------------------------
+
+# plot means for safe vs. risky short-term winning problems
 
 choice_prop_ind_risk <- simple_dat |> 
   mutate(short_choice = if_else(choice==short_option,1,0) ,
-         switching = if_else(switching=='none', "parallel" , switching)) |>
+         complexity = if_else(complexity=='simple', 'Simple', 'Complex'), 
+         switching = case_match(switching, 
+                                'none' ~ "Parallel" ,
+                                'frequent' ~ 'Frequent', 
+                                'infrequent' ~ 'Infrequent')) |>
   group_by(participant, short_type, switching) |> 
   summarize(choice_prop = mean(short_choice))
 
@@ -209,12 +375,12 @@ figure_risk <- lm_risk_effect_summaries |>
   mutate(short_type = case_when(str_detect(.variable, "_R_") ~ "risky" ,
                                 str_detect(.variable, "_S_") ~ "safe" ,
                                 TRUE ~ NA_character_) ,
-         switching = case_when(str_detect(.variable, "F") ~ "frequent"  ,
-                               str_detect(.variable, "I") ~ "infrequent" ,
-                               str_detect(.variable, "P") ~ "parallel" ,
+         switching = case_when(str_detect(.variable, "F") ~ "Frequent"  ,
+                               str_detect(.variable, "I") ~ "Infrequent" ,
+                               str_detect(.variable, "P") ~ "Parallel" ,
                                TRUE ~ NA_character_)) |> 
-  ggplot(aes(x=factor(switching, levels=c("infrequent", "frequent", "parallel")), y=.value, 
-             color=factor(switching, levels=c("infrequent", "frequent", "parallel")))) +
+  ggplot(aes(x=factor(switching, levels=c("Infrequent", "Frequent", "Parallel")), y=.value, 
+             color=factor(switching, levels=c("Infrequent", "Frequent", "Parallel")))) +
   facet_wrap(~factor(short_type, levels=c('risky', 'safe'), labels=c('Safe Long-Term Winner','Risky Long-Term Winner')), nrow=1) +
   geom_beeswarm(data = choice_prop_ind_risk, aes(y=choice_prop), 
                 alpha = .3, 
@@ -227,18 +393,28 @@ figure_risk <- lm_risk_effect_summaries |>
   geom_hline(yintercept = .5, linetype='dashed', color='gray') +
   scale_color_manual(values=three_col) +
   scale_y_continuous(limits = c(0,1), breaks=seq(0,1,length.out=3)) +
-  labs(x = "Switching", 
+  labs(x = "Sampling", 
        y = "Short-term Winner Choice Proportion",
-       color = "Switching",
+       color = "Sampling",
        linetype = "Short-Term Option") +
   theme_bw()
 
 ggsave("manuscript/figures/risk_preference.eps", plot=figure_risk,
-       width = 17.62, height=9/0.9, units="cm",dpi=600, device = cairo_ps)
+       width = 17.62, height=9/1.1, units="cm",dpi=600, device = cairo_ps)
 ggsave("manuscript/figures/risk_preference.jpg", plot=figure_risk,
-       width = 17.62, height=9/0.9, units="cm",dpi=900)
+       width = 17.62, height=9/1.1, units="cm",dpi=900)
+ggsave("manuscript/figures/risk_preference.pdf", plot=figure_risk,
+       width = 17.62, height=9/1.1, units="cm",dpi=600, device = cairo_pdf)
 
 
+## collect -----------------------------------------------------------------
+
+figure_BA <- figure_group_means / figure_risk +
+  plot_annotation( tag_levels = 'A') +
+  plot_layout(guides='collect')
+
+ggsave("manuscript/figures/behavioral_patterns.pdf", plot=figure_BA,
+       width = 17.62, height=17.62, units="cm",dpi=600, device = cairo_pdf)
 
 # computational analysis --------------------------------------------------
 
@@ -385,7 +561,56 @@ if(!file.exists(current_model_summaries)){
 } else{load(current_model_summaries, verbose = T)}
 
 
-## analysis ----------------------------------------------------------------
+
+## tables ------------------------------------------------------------------
+
+digits <- 2
+
+error_tbl <- all_errors |> 
+  filter(participant=='Group Mean') |> 
+  mutate(compact = paste0(round(error,digits), ' [', round(lower_CI, digits), ',', round(upper_CI,digits),']')) |> 
+  select(-c(participant, error, lower_CI, upper_CI)) |> 
+  rename(Error=compact)
+
+weight_tbl <- all_weights |> 
+  filter(.width == 0.95 & strategy %in% c('Roundwise', 'Summary', 'Guessing')) |> 
+  mutate(compact = paste0(round(weight,digits), ' [', round(lower_CI, digits), ',', round(upper_CI,digits),']')) |> 
+  select(-c(.width, weight, lower_CI, upper_CI)) |> 
+  pivot_wider(names_from = strategy, values_from = compact)
+
+lcm_tbl <- weight_tbl |> 
+  left_join(error_tbl, by=join_by(complexity, switching)) |> 
+  rename(Complexity=complexity, 
+         Sampling=switching) |> 
+  mutate(Complexity = case_match(Complexity,
+                                 'simple' ~ 'Simple', 
+                                 'complex' ~ 'Complex'), 
+         Sampling = case_match(Sampling,
+                               'none' ~ 'Parallel', 
+                               'infrequent' ~ 'Infrequent', 
+                               'frequent' ~ 'Frequent')) |> 
+  arrange(factor(Complexity, levels = c('Simple', 'Complex')), 
+          factor(Sampling, levels = c('Infrequent', 'Frequent', 'Parallel'))) |> 
+  select(-Complexity)
+
+lcm_tbl |>
+  kbl(format = "latex",
+      booktabs = TRUE,
+      caption = "Posterior Summaries of the Latent Classification Models",
+      label = 'lcm',
+      align = c(rep("l",2), rep("r", 4)),
+      escape = FALSE, 
+      digits=digits) |>
+  pack_rows("Simple", 1, 3, bold=F, italic=T) |>
+  pack_rows("Complex", 4, 6, bold=F, italic=T) |>
+  footnote(general = "Values in squared brackets are the lower and upper boundary of the 95\\\\% credibile interval.",
+           general_title = "Note. ",
+           escape = FALSE,
+           threeparttable = TRUE) |>  
+  save_kable(paste0("manuscript/tables/lcm.tex"))
+
+
+## figures  ----------------------------------------------------------------
 
 ### strategy weights --------------------------------------------------------
 lcm_weights <- all_weights |>
@@ -429,7 +654,7 @@ lcm_weights <- all_weights |>
   scale_x_continuous(breaks = 1:3, labels=c('Infrequent', 'Frequent', 'Parallel')) +
   facet_wrap(~factor(complexity, levels = c('simple', 'complex'), 
                      labels=c('Simple', 'Complex')), drop=TRUE, nrow=1) +
-  labs(x='Sample Organization', 
+  labs(x='Sampling', 
        y='Strategy Weight', 
        fill='Decision Strategy', 
        color = 'Decision Strategy') +
@@ -438,15 +663,15 @@ lcm_weights <- all_weights |>
   scale_fill_scico_d(palette=col_strat, begin=.1, end=.9) + 
   scale_color_scico_d(palette=col_strat, begin=.1, end=.9)
 
-# jpg for lcm_weights as eps does not support transparency
-
-# ggsave("manuscript/figures/lcm_weights.eps", plot=lcm_weights,
-#        width = 17.62, height=9/1.2, units="cm",dpi=600, device = cairo_ps)
-
 ggsave("manuscript/figures/lcm_weights.jpg", plot=lcm_weights, 
-       width = 17.62, height=9/1.2, units="cm",dpi=900)
+       width = 17.62, height=9/1.1, units="cm",dpi=900)
+ggsave("manuscript/figures/lcm_weights.pdf", plot=lcm_weights, 
+       width = 17.62, height=9/1.1, units="cm",dpi=900)
 
-### individual posterior probabilities ---------------------------------------------------
+
+### individual estimates --------------------------------------------------------------
+
+#### individual posterior probabilities ---------------------------------------------------
 
 nsub <- all_posteriors |> 
   distinct(complexity, switching, participant) |> 
@@ -489,21 +714,76 @@ ggsave("manuscript/figures/lcm_pprobs.eps", plot=lcm_pprobs,
        width = 17.62, height=17.62, units="cm",dpi=600, device = cairo_ps)
 ggsave("manuscript/figures/lcm_ppreds.jpg", plot=lcm_pprobs, 
        width = 17.62, height=17.62, units="cm",dpi=900)
+ggsave("manuscript/figures/lcm_ppreds.pdf", plot=lcm_pprobs, 
+       width = 17.62, height=17.62, units="cm",dpi=900)
 
-### errors ------------------------------------------------------------------
+#### errors ------------------------------------------------------------------
 
 # estimate group level error and add uncertainty in the estimates
 lcm_mu_error <- all_errors |> 
+  mutate(complexity=if_else(complexity=='simple','Simple', 'Complex'), 
+         switching=case_match(switching, 
+                              'none'~'Parallel',
+                              'frequent'~'Frequent',
+                              'infrequent'~'Infrequent')) |> 
   filter(participant=='Group Mean') |> 
-  ggplot(aes(x=switching, y=error, group=switching, colour = complexity)) + 
+  ggplot(aes(x=switching, y=error, color = complexity, group=switching)) + 
   geom_point(size=2, position = position_dodge2(width=0.5)) +
   geom_linerange(aes(ymin=lower_CI, ymax=upper_CI), position = position_dodge2(width=0.5)) + 
   geom_hline(yintercept = .5, linetype='dashed') + 
   scale_color_scico_d(palette='vanimo', begin=.1, end=.9) +
   scale_y_continuous(limits=c(0,.55), breaks=seq(0,.5,length.out=3)) +
+  labs(x='Sampling', 
+       y='Error', 
+       color='Complexity') +
   theme_bw() 
 
 ggsave("manuscript/figures/lcm_mu_error.eps", plot=lcm_mu_error,
        width = 17.62, height=9/1.2, units="cm",dpi=600, device = cairo_ps)
 ggsave("manuscript/figures/lcm_mu_error.jpg", plot=lcm_mu_error,
        width = 17.62, height=9/1.2, units="cm",dpi=900)
+
+
+#### guessing and error -------------------------------------------------------------
+
+guess <- all_posts |> 
+  filter(strategy==3) |> 
+  select(!c(part_unique, lower_CI, upper_CI))
+
+corr_dat <- all_errors |> 
+  filter(!participant=='Group Mean') |>
+  select(!c(lower_CI, upper_CI)) |> 
+  left_join(guess, by=join_by(complexity, switching, participant))
+
+lcm_guess_err_corr <- corr_dat |> 
+  ggplot(aes(x=pprob, y=error)) + 
+  #facet_grid(complexity~switching) +
+  geom_point() +
+  geom_smooth(method='gam', formula = y ~ s(x, bs = "cs"), color='#E4CA74', fill='#E4CA74') +
+  labs(x='p(Guessing)',
+       y='Error') +
+  theme_bw()
+
+figure_error <- (lcm_mu_error | lcm_guess_err_corr) 
+# + plot_layout(guides = 'collect')
+
+ggsave("manuscript/figures/error.pdf", plot=figure_error,
+       width = 17.62, height=9/1.1, units="cm",dpi=900)
+
+
+
+#### collect ---------------------------------------------------------------------
+
+lcm_collection <- lcm_pprobs + lcm_mu_error + lcm_guess_err_corr + guide_area() + 
+  plot_layout(design=c(area(1,1,3), 
+                       area(1,2),
+                       area(2,2),
+                       area(3,2)),
+              widths=c(2,1),
+              guides = 'collect') +
+  plot_annotation(tag_levels = 'A') &
+  theme(legend.box = 'horizontal')
+
+
+ggsave("manuscript/figures/lcm_collection.pdf", plot=lcm_collection,
+       width = 190, height= 190*.8, units="mm",dpi=900)
