@@ -51,7 +51,7 @@ dat |>
 
 # behavioral analysis ----------------------------------------------------
 
-## main --------------------------------------------------------------------
+## fitting --------------------------------------------------------------------
 
 lm_dat <- list(PART = dat$participant ,
                PROB = dat$problem_unique , 
@@ -73,7 +73,7 @@ lm <- brm(formula=lm_f ,
           file = 'fits/linear_model')
 
 
-### Tables -------------------------------------------------------------------
+## tables -------------------------------------------------------------------
 
 lower <- .025
 upper <- .975
@@ -137,7 +137,7 @@ effects |>
            general_title = "Note. ",
            escape = FALSE,
            threeparttable = TRUE) |>  
-  save_kable(paste0("manuscript/tables/lm.tex"))
+  save_kable(paste0("manuscript/tables/lm.tex")) # Table C1 (dissertation)
 
 
 # sampling contrasts
@@ -182,7 +182,7 @@ sampling_contrasts |>
            general_title = "Note. ",
            escape = FALSE,
            threeparttable = TRUE) |>  
-  save_kable(paste0("manuscript/tables/lm_sampling_contrasts.tex"))
+  save_kable(paste0("manuscript/tables/lm_sampling_contrasts.tex")) # table 4.1 dissertation
 
 
 # complexity contrasts
@@ -237,21 +237,11 @@ complexity_contrasts |>
            general_title = "Note. ",
            escape = FALSE,
            threeparttable = TRUE) |>  
-  save_kable(paste0("manuscript/tables/lm_complexity_contrasts.tex"))
+  save_kable(paste0("manuscript/tables/lm_complexity_contrasts.tex"))  # table 4.2 dissertation
 
 
 
-
-# Marginal Averages
-  
-epred_S <- emmeans(lm, ~ S, epred=T)
-epred_S_prop <- emmeans(lm, ~ S, weights='proportional', epred=T)
-
-epred_CPX <- emmeans(lm, ~ CPX, epred = TRUE)
-epred_CPX_prop <- emmeans(lm, ~ CPX, weights='proportional', epred=T)
-
-
-### Figures -----------------------------------------------------------------
+## figure -----------------------------------------------------------------
 
 # plot group means (posterior summaries)
 
@@ -302,119 +292,6 @@ ggsave("manuscript/figures/group_means.jpg", plot=figure_group_means,
 ggsave("manuscript/figures/group_means.pdf", plot=figure_group_means,
        width = 17.62, height=9/1.1, units="cm",dpi=900)
 
-
-## risk preference (simple problems) ---------------------------------------------------------
-
-simple_dat <- dat |> filter(complexity=='simple')
-
-lm_risk_dat <- list(PART = simple_dat$participant ,
-                    PROB = simple_dat$problem_unique , 
-                    S = factor(simple_dat$switching) , 
-                    R = factor(simple_dat$short_type) , 
-                    C = if_else(simple_dat$choice==simple_dat$short_option,1,0))
-
-lm_risk_f <- bf(C ~ 1 + R*S + (1|PROB) + (1|PART))
-
-lm_risk <- brm(formula=lm_risk_f , 
-               data = lm_risk_dat ,
-               family = bernoulli(link = "logit") ,
-               iter = 2000 ,
-               warmup = 1000 ,
-               chains = 6  ,
-               cores = 6 ,
-               save_pars = save_pars(all = TRUE) ,
-               file = 'fits/linear_model_risk')
-
-# posteriors
-
-lm_risk_effect_samples <- lm_risk |> 
-  spread_draws(b_Intercept , b_Sinfrequent , b_Snone, # short-term is risky
-               b_Rsafe , `b_Rsafe:Sinfrequent`, `b_Rsafe:Snone`) |>  # short-term is safe 
-  mutate(m_R_F = plogis(b_Intercept) ,
-         m_R_I = plogis(b_Intercept + b_Sinfrequent) , 
-         m_R_P = plogis(b_Intercept + b_Snone) ,
-         m_S_F = plogis(b_Intercept + b_Rsafe) ,
-         m_S_I = plogis(b_Intercept + b_Rsafe + b_Sinfrequent + `b_Rsafe:Sinfrequent`) , 
-         m_S_P = plogis(b_Intercept + b_Rsafe + b_Snone + `b_Rsafe:Snone`), 
-         d_R_FI = m_R_F - m_R_I ,
-         d_R_FP = m_R_F - m_R_P , 
-         d_R_IP = m_R_I - m_R_P ,
-         d_S_FI = m_S_F - m_S_I ,
-         d_S_FP = m_S_F - m_S_P , 
-         d_S_IP = m_S_I - m_S_P , 
-         d_F = m_R_F - m_S_F ,
-         d_I = m_R_I - m_S_I ,
-         d_P = m_R_P - m_S_P) 
-
-lm_risk_effect_summaries <- lm_risk_effect_samples |> 
-  gather_draws(m_S_F, m_S_I, m_S_P , 
-               m_R_F, m_R_I, m_R_P , 
-               d_S_FI, d_S_FP, d_S_IP, 
-               d_R_FI, d_R_FP, d_R_IP ,
-               d_F, d_I, d_P) |> 
-  mean_qi()
-
-
-### figure ------------------------------------------------------------------
-
-# plot means for safe vs. risky short-term winning problems
-
-choice_prop_ind_risk <- simple_dat |> 
-  mutate(short_choice = if_else(choice==short_option,1,0) ,
-         complexity = if_else(complexity=='simple', 'Simple', 'Complex'), 
-         switching = case_match(switching, 
-                                'none' ~ "Parallel" ,
-                                'frequent' ~ 'Frequent', 
-                                'infrequent' ~ 'Infrequent')) |>
-  group_by(participant, short_type, switching) |> 
-  summarize(choice_prop = mean(short_choice))
-
-
-figure_risk <- lm_risk_effect_summaries |> 
-  filter(!str_detect(.variable, "d")) |> 
-  mutate(short_type = case_when(str_detect(.variable, "_R_") ~ "risky" ,
-                                str_detect(.variable, "_S_") ~ "safe" ,
-                                TRUE ~ NA_character_) ,
-         switching = case_when(str_detect(.variable, "F") ~ "Frequent"  ,
-                               str_detect(.variable, "I") ~ "Infrequent" ,
-                               str_detect(.variable, "P") ~ "Parallel" ,
-                               TRUE ~ NA_character_)) |> 
-  ggplot(aes(x=factor(switching, levels=c("Infrequent", "Frequent", "Parallel")), y=.value, 
-             color=factor(switching, levels=c("Infrequent", "Frequent", "Parallel")))) +
-  facet_wrap(~factor(short_type, levels=c('risky', 'safe'), labels=c('Safe Long-Term Winner','Risky Long-Term Winner')), nrow=1) +
-  geom_beeswarm(data = choice_prop_ind_risk, aes(y=choice_prop), 
-                alpha = .3, 
-                color = 'lightgray', 
-                cex=1.5, 
-                size=2, 
-                side = -1L) +
-  geom_linerange(aes(ymin = .lower, ymax = .upper), position = position_dodge(width=.5), linewidth=1) +
-  geom_point(position = position_dodge(width=.5), size = 3) + 
-  geom_hline(yintercept = .5, linetype='dashed', color='gray') +
-  scale_color_manual(values=three_col) +
-  scale_y_continuous(limits = c(0,1), breaks=seq(0,1,length.out=3)) +
-  labs(x = "Sampling", 
-       y = "Short-term Winner Choice Proportion",
-       color = "Sampling",
-       linetype = "Short-Term Option") +
-  theme_bw()
-
-ggsave("manuscript/figures/risk_preference.eps", plot=figure_risk,
-       width = 17.62, height=9/1.1, units="cm",dpi=600, device = cairo_ps)
-ggsave("manuscript/figures/risk_preference.jpg", plot=figure_risk,
-       width = 17.62, height=9/1.1, units="cm",dpi=900)
-ggsave("manuscript/figures/risk_preference.pdf", plot=figure_risk,
-       width = 17.62, height=9/1.1, units="cm",dpi=600, device = cairo_pdf)
-
-
-## collect -----------------------------------------------------------------
-
-figure_BA <- figure_group_means / figure_risk +
-  plot_annotation( tag_levels = 'A') +
-  plot_layout(guides='collect')
-
-ggsave("manuscript/figures/behavioral_patterns.pdf", plot=figure_BA,
-       width = 17.62, height=17.62, units="cm",dpi=600, device = cairo_pdf)
 
 # computational analysis --------------------------------------------------
 
@@ -607,69 +484,12 @@ lcm_tbl |>
            general_title = "Note. ",
            escape = FALSE,
            threeparttable = TRUE) |>  
-  save_kable(paste0("manuscript/tables/lcm.tex"))
+  save_kable(paste0("manuscript/tables/lcm.tex")) # table 4.3 dissertation
 
 
-## figures  ----------------------------------------------------------------
+## figure(s)  ----------------------------------------------------------------
 
-### strategy weights --------------------------------------------------------
-lcm_weights <- all_weights |>
-  filter(strategy %in% c("Roundwise", "Summary", "Guessing")) |>
-  pivot_wider(names_from = .width, values_from = c(lower_CI, upper_CI)) |> 
-  mutate(x = as.numeric(case_match(switching, 
-                                   'infrequent' ~ 1 ,
-                                   'frequent' ~ 2 ,
-                                   'none' ~ 3)) ,
-         offset = c(Roundwise = -width ,
-                    Summary    = 0 ,
-                    Guessing   = width)[strategy]) |> 
-  ggplot() +
-  geom_rect(aes(xmin = x + offset - width/2 , 
-                xmax = x + offset + width/2 , 
-                ymin = lower_CI_0.95 , 
-                ymax = upper_CI_0.95 ,
-                fill = strategy) ,
-            alpha = alpha) +
-  geom_rect(aes(xmin = x + offset - width/2 ,
-                xmax = x + offset + width/2 ,
-                ymin = lower_CI_0.8 ,
-                ymax = upper_CI_0.8 ,
-                fill = factor(strategy, 
-                              levels = c('Roundwise', 'Summary', 'Guessing'))) , 
-            alpha = .3) +
-  geom_rect(aes(xmin = x + offset - width/2 ,
-                xmax = x + offset + width/2 ,
-                ymin = lower_CI_0.5 ,
-                ymax = upper_CI_0.5 , 
-                fill = factor(strategy, 
-                              levels = c('Roundwise', 'Summary', 'Guessing'))) ,
-            alpha = .3) +
-  geom_segment(aes(x = x + offset - width/2 ,
-                   xend = x + offset + width/2 ,
-                   y = weight ,
-                   yend = weight ,
-                   col = factor(strategy, 
-                                levels = c('Roundwise', 'Summary', 'Guessing'))) ,
-               linewidth = 2) +
-  scale_x_continuous(breaks = 1:3, labels=c('Infrequent', 'Frequent', 'Parallel')) +
-  facet_wrap(~factor(complexity, levels = c('simple', 'complex'), 
-                     labels=c('Simple', 'Complex')), drop=TRUE, nrow=1) +
-  labs(x='Sampling', 
-       y='Strategy Weight', 
-       fill='Decision Strategy', 
-       color = 'Decision Strategy') +
-  theme_bw() +
-  scale_y_continuous(limits=c(-.05, 1.05), breaks = seq(0,1,length.out=3)) +
-  scale_fill_scico_d(palette=col_strat, begin=.1, end=.9) + 
-  scale_color_scico_d(palette=col_strat, begin=.1, end=.9)
-
-ggsave("manuscript/figures/lcm_weights.jpg", plot=lcm_weights, 
-       width = 17.62, height=9/1.1, units="cm",dpi=900)
-ggsave("manuscript/figures/lcm_weights.pdf", plot=lcm_weights, 
-       width = 17.62, height=9/1.1, units="cm",dpi=900)
-
-
-### individual estimates --------------------------------------------------------------
+### collection --------------------------------------------------------------
 
 #### individual posterior probabilities ---------------------------------------------------
 
@@ -764,15 +584,8 @@ lcm_guess_err_corr <- corr_dat |>
        y='Error') +
   theme_bw()
 
-figure_error <- (lcm_mu_error | lcm_guess_err_corr) 
-# + plot_layout(guides = 'collect')
 
-ggsave("manuscript/figures/error.pdf", plot=figure_error,
-       width = 17.62, height=9/1.1, units="cm",dpi=900)
-
-
-
-#### collect ---------------------------------------------------------------------
+#### merge ---------------------------------------------------------------------
 
 lcm_collection <- lcm_pprobs + lcm_mu_error + lcm_guess_err_corr + guide_area() + 
   plot_layout(design=c(area(1,1,3), 
@@ -787,3 +600,171 @@ lcm_collection <- lcm_pprobs + lcm_mu_error + lcm_guess_err_corr + guide_area() 
 
 ggsave("manuscript/figures/lcm_collection.pdf", plot=lcm_collection,
        width = 190, height= 190*.8, units="mm",dpi=900)
+
+### strategy weights  --------------------------------------------------------
+# not included in dissertation
+
+lcm_weights <- all_weights |>
+  filter(strategy %in% c("Roundwise", "Summary", "Guessing")) |>
+  pivot_wider(names_from = .width, values_from = c(lower_CI, upper_CI)) |> 
+  mutate(x = as.numeric(case_match(switching, 
+                                   'infrequent' ~ 1 ,
+                                   'frequent' ~ 2 ,
+                                   'none' ~ 3)) ,
+         offset = c(Roundwise = -width ,
+                    Summary    = 0 ,
+                    Guessing   = width)[strategy]) |> 
+  ggplot() +
+  geom_rect(aes(xmin = x + offset - width/2 , 
+                xmax = x + offset + width/2 , 
+                ymin = lower_CI_0.95 , 
+                ymax = upper_CI_0.95 ,
+                fill = strategy) ,
+            alpha = alpha) +
+  geom_rect(aes(xmin = x + offset - width/2 ,
+                xmax = x + offset + width/2 ,
+                ymin = lower_CI_0.8 ,
+                ymax = upper_CI_0.8 ,
+                fill = factor(strategy, 
+                              levels = c('Roundwise', 'Summary', 'Guessing'))) , 
+            alpha = .3) +
+  geom_rect(aes(xmin = x + offset - width/2 ,
+                xmax = x + offset + width/2 ,
+                ymin = lower_CI_0.5 ,
+                ymax = upper_CI_0.5 , 
+                fill = factor(strategy, 
+                              levels = c('Roundwise', 'Summary', 'Guessing'))) ,
+            alpha = .3) +
+  geom_segment(aes(x = x + offset - width/2 ,
+                   xend = x + offset + width/2 ,
+                   y = weight ,
+                   yend = weight ,
+                   col = factor(strategy, 
+                                levels = c('Roundwise', 'Summary', 'Guessing'))) ,
+               linewidth = 2) +
+  scale_x_continuous(breaks = 1:3, labels=c('Infrequent', 'Frequent', 'Parallel')) +
+  facet_wrap(~factor(complexity, levels = c('simple', 'complex'), 
+                     labels=c('Simple', 'Complex')), drop=TRUE, nrow=1) +
+  labs(x='Sampling', 
+       y='Strategy Weight', 
+       fill='Decision Strategy', 
+       color = 'Decision Strategy') +
+  theme_bw() +
+  scale_y_continuous(limits=c(-.05, 1.05), breaks = seq(0,1,length.out=3)) +
+  scale_fill_scico_d(palette=col_strat, begin=.1, end=.9) + 
+  scale_color_scico_d(palette=col_strat, begin=.1, end=.9)
+
+ggsave("manuscript/figures/lcm_weights.jpg", plot=lcm_weights, 
+       width = 17.62, height=9/1.1, units="cm",dpi=900)
+ggsave("manuscript/figures/lcm_weights.pdf", plot=lcm_weights, 
+       width = 17.62, height=9/1.1, units="cm",dpi=900)
+
+
+
+# Appendix: Risk Analysis -------------------------------------------------
+
+
+## risk preference (simple problems) ---------------------------------------------------------
+
+simple_dat <- dat |> filter(complexity=='simple')
+
+lm_risk_dat <- list(PART = simple_dat$participant ,
+                    PROB = simple_dat$problem_unique , 
+                    S = factor(simple_dat$switching) , 
+                    R = factor(simple_dat$short_type) , 
+                    C = if_else(simple_dat$choice==simple_dat$short_option,1,0))
+
+lm_risk_f <- bf(C ~ 1 + R*S + (1|PROB) + (1|PART))
+
+lm_risk <- brm(formula=lm_risk_f , 
+               data = lm_risk_dat ,
+               family = bernoulli(link = "logit") ,
+               iter = 2000 ,
+               warmup = 1000 ,
+               chains = 6  ,
+               cores = 6 ,
+               save_pars = save_pars(all = TRUE) ,
+               file = 'fits/linear_model_risk')
+
+# posteriors
+
+lm_risk_effect_samples <- lm_risk |> 
+  spread_draws(b_Intercept , b_Sinfrequent , b_Snone, # short-term is risky
+               b_Rsafe , `b_Rsafe:Sinfrequent`, `b_Rsafe:Snone`) |>  # short-term is safe 
+  mutate(m_R_F = plogis(b_Intercept) ,
+         m_R_I = plogis(b_Intercept + b_Sinfrequent) , 
+         m_R_P = plogis(b_Intercept + b_Snone) ,
+         m_S_F = plogis(b_Intercept + b_Rsafe) ,
+         m_S_I = plogis(b_Intercept + b_Rsafe + b_Sinfrequent + `b_Rsafe:Sinfrequent`) , 
+         m_S_P = plogis(b_Intercept + b_Rsafe + b_Snone + `b_Rsafe:Snone`), 
+         d_R_FI = m_R_F - m_R_I ,
+         d_R_FP = m_R_F - m_R_P , 
+         d_R_IP = m_R_I - m_R_P ,
+         d_S_FI = m_S_F - m_S_I ,
+         d_S_FP = m_S_F - m_S_P , 
+         d_S_IP = m_S_I - m_S_P , 
+         d_F = m_R_F - m_S_F ,
+         d_I = m_R_I - m_S_I ,
+         d_P = m_R_P - m_S_P) 
+
+lm_risk_effect_summaries <- lm_risk_effect_samples |> 
+  gather_draws(m_S_F, m_S_I, m_S_P , 
+               m_R_F, m_R_I, m_R_P , 
+               d_S_FI, d_S_FP, d_S_IP, 
+               d_R_FI, d_R_FP, d_R_IP ,
+               d_F, d_I, d_P) |> 
+  mean_qi()
+
+
+### figure ------------------------------------------------------------------
+
+# plot means for safe vs. risky short-term winning problems
+
+choice_prop_ind_risk <- simple_dat |> 
+  mutate(short_choice = if_else(choice==short_option,1,0) ,
+         complexity = if_else(complexity=='simple', 'Simple', 'Complex'), 
+         switching = case_match(switching, 
+                                'none' ~ "Parallel" ,
+                                'frequent' ~ 'Frequent', 
+                                'infrequent' ~ 'Infrequent')) |>
+  group_by(participant, short_type, switching) |> 
+  summarize(choice_prop = mean(short_choice))
+
+
+figure_risk <- lm_risk_effect_summaries |> 
+  filter(!str_detect(.variable, "d")) |> 
+  mutate(short_type = case_when(str_detect(.variable, "_R_") ~ "risky" ,
+                                str_detect(.variable, "_S_") ~ "safe" ,
+                                TRUE ~ NA_character_) ,
+         switching = case_when(str_detect(.variable, "F") ~ "Frequent"  ,
+                               str_detect(.variable, "I") ~ "Infrequent" ,
+                               str_detect(.variable, "P") ~ "Parallel" ,
+                               TRUE ~ NA_character_)) |> 
+  ggplot(aes(x=factor(switching, levels=c("Infrequent", "Frequent", "Parallel")), y=.value, 
+             color=factor(switching, levels=c("Infrequent", "Frequent", "Parallel")))) +
+  facet_wrap(~factor(short_type, levels=c('risky', 'safe'), labels=c('Safe Long-Term Winner','Risky Long-Term Winner')), nrow=1) +
+  geom_beeswarm(data = choice_prop_ind_risk, aes(y=choice_prop), 
+                alpha = .3, 
+                color = 'lightgray', 
+                cex=1.5, 
+                size=2, 
+                side = -1L) +
+  geom_linerange(aes(ymin = .lower, ymax = .upper), position = position_dodge(width=.5), linewidth=1) +
+  geom_point(position = position_dodge(width=.5), size = 3) + 
+  geom_hline(yintercept = .5, linetype='dashed', color='gray') +
+  scale_color_manual(values=three_col) +
+  scale_y_continuous(limits = c(0,1), breaks=seq(0,1,length.out=3)) +
+  labs(x = "Sampling", 
+       y = "Short-term Winner Choice Proportion",
+       color = "Sampling",
+       linetype = "Short-Term Option") +
+  theme_bw()
+
+ggsave("manuscript/figures/risk_preference.eps", plot=figure_risk,
+       width = 17.62, height=9/1.1, units="cm",dpi=600, device = cairo_ps)
+ggsave("manuscript/figures/risk_preference.jpg", plot=figure_risk,
+       width = 17.62, height=9/1.1, units="cm",dpi=900)
+ggsave("manuscript/figures/risk_preference.pdf", plot=figure_risk,
+       width = 17.62, height=9/1.1, units="cm",dpi=600, device = cairo_pdf)
+
+

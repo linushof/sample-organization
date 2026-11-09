@@ -3,20 +3,21 @@
 .RData
 .Ruserdata
 
-# only temporarily
-fits/
+# folders
+legacy/
+misc/
+manuscript/
+code/misc/
+
+fits/lcm_*
+fits/linear_*
+fits/summaries/
 PsychoPy/
 data/raw/par/
 data/raw/seq/
 data/stimuli/observed_samples/practice
 data/stimuli/observed_samples/test
 data/stimuli/latent_problems/
-
-# folders
-legacy/
-misc/
-manuscript/
-code/misc/
 
 # files
 references.bib

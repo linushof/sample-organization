@@ -1,0 +1,1 @@
+Retrieve stored `brms` and `stan` fits from the [latest release](https://github.com/linushof/sampling-organization/releases) and store files here. Alternatively, rerun analyses (might take some time). 
