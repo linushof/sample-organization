@@ -15,11 +15,16 @@ fits/summaries/
 PsychoPy/
 data/raw/par/
 data/raw/seq/
-data/stimuli/observed_samples/practice
-data/stimuli/observed_samples/test
-data/stimuli/latent_problems/
+
+data/stimuli/observed_samples/practice/
+data/stimuli/observed_samples/practice_summaries.csv
+
+
+data/stimuli/latent_problems/practice/
+data/stimuli/latent_problems/all_problems.csv
 
 # files
 references.bib
 *.rds
-*.pptx
+*.ppt
+*.xlsx
