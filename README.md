@@ -1,4 +1,7 @@
 # Sample Organization Does Not Affect Experience-Based Risky Choice Regardless of Option Complexity	
+
+[![DOI](https://zenodo.org/badge/1094932157.svg)](https://doi.org/10.5281/zenodo.24109605)
+
 	
 Research on the sampling paradigm of decisions from experience has documented a correlational link between switch rates during predecisional search and the final choice.
 Yet, the causal direction of this link is ambiguous. 

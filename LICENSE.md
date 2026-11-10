@@ -2,8 +2,6 @@ All Rights Reserved
 
 Copyright (c) 2026 The Authors
 
-=======================================================================
-
 This repository is made publicly available for inspection and evaluation purposes only.
 
 Unless explicitly authorized in writing by the copyright holder, no permission is granted to:
